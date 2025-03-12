@@ -1,0 +1,16 @@
+{
+    "LogLevel":  3,
+    "RetentionWeeks":  4,
+    "USBDriveLetter":  "E",
+    "LocalBackupPath":  "C:\\Users\\\u003cUSERNAME\u003e\\Documents\\Keepass_Backups",
+    "EnableUSBBackup":  true,
+    "USBBackupPath":  "KeePass_Backups",
+    "BitLockerUSB":  true,
+    "RetentionDays":  7,
+    "BackupIntervalHours":  24,
+    "RetentionMonths":  6,
+    "SourcePath":  "C:\\Users\\\u003cUSERNAME\u003e\\OneDrive\\KeePass.kdbx",
+    "BitLockerKeyPath":  "C:\\Users\\\u003cUSERNAME\u003e\\Documents\\BitLocker_Keys",
+    "USBDriveLabel":  "",
+    "EnableBitLocker":  true
+}

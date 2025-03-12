@@ -1,0 +1,19 @@
+# Config Files
+Config/config.json
+
+# Sensitive Data and Logs
+/Data/*
+BitLockerKeys/
+Logs/
+Backups/
+
+# General exclusions
+*.log
+*.bek
+RecoveryPassword_*.txt
+*.backup_*
+Database_Backup_*.kdbx
+
+# IDE and Editor Folders
+.vscode/
+.idea/
