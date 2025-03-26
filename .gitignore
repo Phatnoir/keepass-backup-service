@@ -17,3 +17,4 @@ Database_Backup_*.kdbx
 # IDE and Editor Folders
 .vscode/
 .idea/
+scripts_dev/
