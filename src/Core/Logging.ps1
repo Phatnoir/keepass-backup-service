@@ -1,6 +1,3 @@
-# KeePass Backup Service - Logging Module
-# Contains functions for logging operations
-
 function Write-ServiceLog {
     param(
         [string]$Message,
@@ -20,17 +17,45 @@ function Write-ServiceLog {
         default { 3 }
     }
     
-    if ($messageLevel -gt $global:config.LogLevel) {
+    # Default to configured log level or 3 if not set
+    if ($null -eq $global:config -or $null -eq $global:config.LogLevel) {
+        $configLogLevel = 3
+    } else {
+        $configLogLevel = $global:config.LogLevel
+    }
+    
+    if ($messageLevel -gt $configLogLevel) {
         return
+    }
+    
+    # Default log file if not set
+    if ([string]::IsNullOrEmpty($global:logFile)) {
+        $global:logFile = "C:\Program Files\KeePassBackup\Data\Logs\service.log"
+    }
+    
+    # Ensure log directory exists
+    $logDir = Split-Path -Parent $global:logFile
+    if (!(Test-Path $logDir)) {
+        try {
+            New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        } catch {
+            # Can't log this error since logging is what's broken!
+            # Just continue to attempt file logging
+        }
     }
     
     # File logging with timestamp
     $logMessage = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$Type]: $Message"
-    Add-Content -Path $logFile -Value $logMessage -ErrorAction SilentlyContinue
+    Add-Content -Path $global:logFile -Value $logMessage -ErrorAction SilentlyContinue
     
     # Event logging (only for non-debug messages)
     if ($Type -ne 'Debug') {
         try {
+            # Default service name if not set
+            if ([string]::IsNullOrEmpty($global:serviceName)) {
+                $global:serviceName = "KeePassBackupService"
+            }
+            
             # Convert our type to valid EventLogEntryType enum
             $eventLogEntryType = switch ($Type) {
                 'Error' { [System.Diagnostics.EventLogEntryType]::Error }
@@ -39,15 +64,14 @@ function Write-ServiceLog {
                 default { [System.Diagnostics.EventLogEntryType]::Information }
             }
             
-            Write-EventLog -LogName "Application" -Source $serviceName -EventId 1000 -EntryType $eventLogEntryType -Message $Message -ErrorAction SilentlyContinue
-        }
-        catch {
+            if ([System.Diagnostics.EventLog]::SourceExists($global:serviceName)) {
+                Write-EventLog -LogName "Application" -Source $global:serviceName -EventId 1000 -EntryType $eventLogEntryType -Message $Message -ErrorAction SilentlyContinue
+            }
+        } catch {
             # If event log fails, at least we have file logging
-            Add-Content -Path $logFile -Value "Failed to write to Event Log: $($_.Exception.Message)" -ErrorAction SilentlyContinue
+            Add-Content -Path $global:logFile -Value "Failed to write to Event Log: $($_.Exception.Message)" -ErrorAction SilentlyContinue
         }
     }
 }
 
-# Export function for use in main script
-# Note: This line should be removed if not using as a module
-# Export-ModuleMember -Function Write-ServiceLog
+

@@ -1,30 +1,99 @@
 # KeePass Backup Service with BitLocker and USB Support
-# Version: 2.1.0
-# Date: 2025-03-11
+# Version: 2.1.1
+# Date: 2025-03-17
 
-# Load core modules
-$scriptPath = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
-$corePath = Join-Path -Path $scriptPath -ChildPath "Core"
+# Configure error handling
+$ErrorActionPreference = "Continue"
+
+# Set global variables
+$global:serviceName = "KeePassBackupService"
+$global:scriptPath = $MyInvocation.MyCommand.Definition
+$global:scriptDir = Split-Path -Parent -Path $global:scriptPath
+$global:rootDir = Split-Path -Parent -Path $global:scriptDir
+$global:dataDir = Join-Path -Path $global:rootDir -ChildPath "Data"
+$global:logsDir = Join-Path -Path $global:dataDir -ChildPath "Logs"
+$global:logFile = Join-Path $global:logsDir "service.log"
+$global:corePath = Join-Path -Path $global:scriptDir -ChildPath "Core"
+$global:configDir = Join-Path -Path $global:rootDir -ChildPath "Config"
+$global:configPath = Join-Path -Path $global:configDir -ChildPath "config.json"
+
+# Prepare log directory if it doesn't exist
+if (!(Test-Path -Path $global:logsDir)) {
+    try {
+        New-Item -ItemType Directory -Path $global:logsDir -Force | Out-Null
+    } catch {
+        # Can't log this since logging isn't set up yet
+        # Just continue
+    }
+}
+
+# Simple internal logging function for startup before modules are loaded
+function Write-StartupLog {
+    param([string]$Message, [string]$Type = "INFO")
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$timestamp - [$Type] $Message" | Out-File -FilePath $global:logFile -Append
+}
+
+Write-StartupLog "KeePass Backup Service starting..."
 
 # Import core modules by dot-sourcing
-. (Join-Path -Path $corePath -ChildPath "Logging.ps1")
-. (Join-Path -Path $corePath -ChildPath "BitLocker.ps1")
-. (Join-Path -Path $corePath -ChildPath "Backup.ps1")
+Write-StartupLog "Loading core modules..."
+
+try {
+    $loggingScriptPath = Join-Path -Path $global:corePath -ChildPath "Logging.ps1"
+if (Test-Path $loggingScriptPath) {
+    . $loggingScriptPath
+    if (Get-Command -Name Write-ServiceLog -ErrorAction SilentlyContinue) {
+        Write-ServiceLog "Loaded Logging.ps1" -Type Information
+    } else {
+        Write-Host "Loaded Logging.ps1"
+    }
+} else {
+    if (Get-Command -Name Write-StartupLog -ErrorAction SilentlyContinue) {
+        Write-StartupLog "Logging.ps1 not found at $loggingScriptPath" "ERROR"
+    } else {
+        Write-Host "ERROR: Logging.ps1 not found at $loggingScriptPath"
+    }
+}
+
+    Write-StartupLog "Loaded Logging.ps1" "SUCCESS"
+} catch {
+    Write-StartupLog "Error loading Logging.ps1: $_" "ERROR"
+    # Create basic Write-ServiceLog function if module loading failed
+    function Write-ServiceLog {
+        param([string]$Message, [string]$Type = "Information", [int]$LogLevel = 3)
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        "$timestamp - [$Type] $Message" | Out-File -FilePath $global:logFile -Append
+    }
+}
+
+try {
+    . (Join-Path -Path $global:corePath -ChildPath "BitLocker.ps1")
+    Write-ServiceLog "Loaded BitLocker.ps1" -Type Information
+} catch {
+    Write-ServiceLog "Error loading BitLocker.ps1: $_" -Type Error
+}
+
+try {
+    . (Join-Path -Path $global:corePath -ChildPath "Backup.ps1")
+    Write-ServiceLog "Loaded Backup.ps1" -Type Information
+} catch {
+    Write-ServiceLog "Error loading Backup.ps1: $_" -Type Error
+}
 
 # Service setup
-$serviceName = "KeePassBackupService"
 $script:serviceRunning = $true  # Control variable for service loop
 
 # Default configuration - will be overridden if config file exists
 $global:config = @{
-    SourcePath = "$env:USERPROFILE\OneDrive\KeePass.kdbx"
-    LocalBackupPath = "$env:USERPROFILE\Documents\KeePass_Backups"
-    EnableUSBBackup = $true
+    SourcePath = "$env:USERPROFILE\OneDrive\Database.kdbx"
+    LocalBackupPath = "$env:USERPROFILE\Documents\Keepass_Backups"
+    EnableUSBBackup = $false
     USBDriveLetter = ""
     USBBackupPath = "KeePass_Backups"
     USBDriveLabel = "BACKUP"
-    EnableBitLocker = $true
-    BitLockerUSB = $true
+    EnableBitLocker = $false
+    BitLockerUSB = $false
     BitLockerKeyPath = "$env:USERPROFILE\Documents\BitLocker_Keys"
     BackupIntervalHours = 24
     RetentionDays = 7
@@ -35,117 +104,122 @@ $global:config = @{
 
 # Try to load configuration from file
 function Load-Configuration {
-    param(
-        [string]$ConfigPath = $null
-    )
+    param([string]$ConfigPath = $global:configPath)
     
     try {
-        # First, try to use the script directory to find config
-        if ([string]::IsNullOrEmpty($ConfigPath)) {
-            $scriptDir = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
-            $configDir = Join-Path -Path (Split-Path -Parent -Path $scriptDir) -ChildPath "Config"
-            $ConfigPath = Join-Path -Path $configDir -ChildPath "config.json"
+        # Ensure global config is initialized
+        if ($null -eq $global:config) {
+            $global:config = @{}
         }
-        
+
+        # Check if config file exists
         if (Test-Path $ConfigPath) {
-            Write-Host "Loading configuration from: $ConfigPath"
+            Write-ServiceLog "Loading configuration from: $ConfigPath" -Type Information
             $loadedConfig = Get-Content $ConfigPath -Raw | ConvertFrom-Json
             
-            # Update our global config with loaded values
             foreach ($prop in $loadedConfig.PSObject.Properties) {
                 $global:config[$prop.Name] = $prop.Value
             }
-            
+
+            Write-ServiceLog "Configuration loaded successfully" -Type Information
             return $true
         }
-        else {
-            # Fallback to user profile if not found in script directory
-            $fallbackPath = "$env:USERPROFILE\KeePassBackup\config.json"
-            if (Test-Path $fallbackPath) {
-                Write-Host "Loading configuration from fallback location: $fallbackPath"
-                $loadedConfig = Get-Content $fallbackPath -Raw | ConvertFrom-Json
-                
-                # Update our global config with loaded values
-                foreach ($prop in $loadedConfig.PSObject.Properties) {
-                    $global:config[$prop.Name] = $prop.Value
-                }
-                
-                return $true
-            }
-        }
+        
+        Write-ServiceLog "No configuration file found at $ConfigPath. Using default settings." -Type Warning
+        return $false
     }
     catch {
-        # If loading fails, we'll continue with default configuration
-        # But we'll log the error once logging is set up
-        $script:configError = $_.Exception.Message
+        Write-ServiceLog "Error loading configuration: $_" -Type Error
+        return $false
     }
-    
-    return $false
 }
+
 
 # Try to load configuration
 $configLoaded = Load-Configuration
+if ($configLoaded) {
+    Write-ServiceLog "Configuration loaded successfully" -Type Information
+} else {
+    Write-ServiceLog "No configuration file found or error loading, using default settings" -Type Warning
+}
 
 # Define path variables from loaded configuration
 $source = $global:config.SourcePath
 $destination = $global:config.LocalBackupPath
 
-# Adjust logging path to be in the Data directory
-$dataDir = Join-Path -Path (Split-Path -Parent (Split-Path -Parent $scriptPath)) -ChildPath "Data"
-$logsDir = Join-Path -Path $dataDir -ChildPath "Logs"
-$logFile = Join-Path $logsDir "service.log"
-
-# Prepare log directory if it doesn't exist
-if (!(Test-Path -Path $logsDir)) {
-    $null = New-Item -ItemType Directory -Path $logsDir -Force
+# Verify the source file exists
+if (!(Test-Path $source)) {
+    Write-ServiceLog "WARNING: Source file not found at $source" -Type Warning
+} else {
+    Write-ServiceLog "Source file verified at $source" -Type Information
 }
 
-# Register event source if not exists
-if (![System.Diagnostics.EventLog]::SourceExists($serviceName)) {
+# Ensure backup directory exists
+if (!(Test-Path $destination)) {
     try {
-        [System.Diagnostics.EventLog]::CreateEventSource($serviceName, "Application")
+        New-Item -ItemType Directory -Path $destination -Force | Out-Null
+        Write-ServiceLog "Created backup directory: $destination" -Type Information
+    } catch {
+        Write-ServiceLog "Failed to create backup directory: $_" -Type Error
     }
-    catch {
-        # Continue even if event source creation fails
-        # We'll still have file logging
-    }
-}
-
-# Log any configuration errors now that logging is setup
-if ($script:configError) {
-    Write-ServiceLog "Error loading configuration: $script:configError" -Type Warning
-    Write-ServiceLog "Using default configuration settings" -Type Warning
-}
-else {
-    if ($configLoaded) {
-        Write-ServiceLog "Configuration loaded successfully" -Type Information
-    }
-    else {
-        Write-ServiceLog "No configuration file found, using default settings" -Type Warning
-    }
+} else {
+    Write-ServiceLog "Backup directory verified at $destination" -Type Information
 }
 
 # Service control functions
 function Start-ServiceWork {
     Write-ServiceLog "KeePass Backup Service starting" -Type Information
     
+    # Initial check on service start
+    try {
+        if (Test-Path Function:\Should-RunBackup) {
+            $shouldRunBackup = Should-RunBackup
+            if ($shouldRunBackup) {
+                Backup-KeePassDatabase
+                Write-ServiceLog "Initial backup completed successfully" -Type Information
+            } else {
+                Write-ServiceLog "No backup needed on service start - already backed up today" -Type Information
+            }
+        } else {
+            Write-ServiceLog "Should-RunBackup function not available. Check module loading." -Type Error
+        }
+    } catch {
+        Write-ServiceLog "Error checking if backup needed: $_" -Type Error
+    }
+    
     while ($script:serviceRunning) {
         try {
-            # Check if we should run a backup based on last backup time
-            if (Should-RunBackup) {
-                # Run the backup
-                Backup-KeePassDatabase
+            $shouldRunBackup = $false
+            if (Test-Path Function:\Should-RunBackup) {
+                $shouldRunBackup = Should-RunBackup
+            }
+
+            if ($shouldRunBackup) {
+                $result = Backup-KeePassDatabase
+                if ($result) {
+                    Write-ServiceLog "Backup completed successfully" -Type Information
+                } else {
+                    Write-ServiceLog "Backup failed or incomplete" -Type Error
+                }
             }
             
-            # Calculate time until next backup (in seconds)
-            $timeout = Get-TimeUntilNextBackup
-            
-            # If it's 0, we'll do a small wait before checking again
-            if ($timeout -le 0) {
-                $timeout = 300  # 5 minutes
+            # Adjust timeout based on the result
+            if ($shouldRunBackup) {
+                # Successful backup → Wait until the next day or interval
+                $timeout = 3600 * $global:config.BackupIntervalHours
+            } else {
+                # No backup needed → Try again in 1 hour
+                $timeout = 3600
             }
             
-            # Cap the maximum wait time to 8 hours to prevent issues
+            # Handle failure or error recovery
+            if ($null -eq $shouldRunBackup) {
+                # If function throws an error or returns unexpected result, retry in 10 minutes
+                Write-ServiceLog "Error or undefined result from Should-RunBackup. Retrying in 10 minutes." -Type Warning
+                $timeout = 600  # 10 minutes
+            }
+            
+            # Cap the maximum wait time to 8 hours to avoid getting stuck
             if ($timeout -gt 28800) {
                 $timeout = 28800  # 8 hours
             }
@@ -159,13 +233,15 @@ function Start-ServiceWork {
             }
         }
         catch {
-            Write-ServiceLog "Critical service error: $($_.Exception.Message)" -Type Error
-            # Wait shorter interval on error before retry
-            Start-Sleep -Seconds 3600  # 1 hour
+            Write-ServiceLog "Critical service error: $_" -Type Error
+            # Shorter retry on failure to reduce downtime
+            Start-Sleep -Seconds 600  # 10 minutes
         }
     }
+
     Write-ServiceLog "KeePass Backup Service stopping gracefully" -Type Information
 }
+
 
 # Handle various stop signals
 $stopScript = {
@@ -175,11 +251,12 @@ $stopScript = {
 
 # Register stop signal handlers
 try {
-    Register-ObjectEvent -InputObject ([System.Console]) -EventName CancelKeyPress -Action $stopScript
-    Register-EngineEvent -SourceIdentifier ([System.Management.Automation.PipelineState]::Stopped) -Action $stopScript
+    Register-ObjectEvent -InputObject ([System.Console]) -EventName CancelKeyPress -Action $stopScript -ErrorAction SilentlyContinue
+    Register-EngineEvent -SourceIdentifier ([System.Management.Automation.PipelineState]::Stopped) -Action $stopScript -ErrorAction SilentlyContinue
 } catch {
-    Write-Host "Warning: Failed to register event handlers. Service may not stop gracefully." -ForegroundColor Yellow
+    Write-ServiceLog "Warning: Failed to register event handlers. Service may not stop gracefully." -Type Warning
 }
 
 # Start the service work
 Start-ServiceWork
+
