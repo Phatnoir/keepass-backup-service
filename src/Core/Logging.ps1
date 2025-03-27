@@ -1,11 +1,17 @@
+# Simple internal logging function for startup before modules are loaded
+function Write-StartupLog {
+    param([string]$Message, [string]$Type = "INIT")
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$timestamp - [STARTUP:$Type] $Message" | Out-File -FilePath $global:logFile -Append
+}
+
 function Write-ServiceLog {
+    # Existing function but with clearly different prefix
     param(
         [string]$Message,
-        
         [ValidateSet('Information', 'Warning', 'Error', 'Debug')]
         [string]$Type = 'Information',
-        
-        [int]$LogLevel = 3  # Default to Info
+        [int]$LogLevel = 3
     )
     
     # Skip if message log level is higher than configured log level
@@ -45,7 +51,7 @@ function Write-ServiceLog {
     }
     
     # File logging with timestamp
-    $logMessage = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$Type]: $Message"
+    $logMessage = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [SERVICE:$Type]: $Message"
     Add-Content -Path $global:logFile -Value $logMessage -ErrorAction SilentlyContinue
     
     # Event logging (only for non-debug messages)

@@ -17,13 +17,22 @@ $global:corePath = Join-Path -Path $global:scriptDir -ChildPath "Core"
 $global:configDir = Join-Path -Path $global:rootDir -ChildPath "Config"
 $global:configPath = Join-Path -Path $global:configDir -ChildPath "config.json"
 
-# Prepare log directory if it doesn't exist
+# Ensure logs directory exists before any logging happens
 if (!(Test-Path -Path $global:logsDir)) {
     try {
         New-Item -ItemType Directory -Path $global:logsDir -Force | Out-Null
     } catch {
-        # Can't log this since logging isn't set up yet
-        # Just continue
+        # If we can't create the intended log directory, fall back to a temporary location
+        $global:logsDir = Join-Path -Path $env:TEMP -ChildPath "KeePassBackup\Logs"
+        $global:logFile = Join-Path -Path $global:logsDir -ChildPath "service_fallback.log"
+        
+        # Try to create the fallback directory
+        try {
+            New-Item -ItemType Directory -Path $global:logsDir -Force | Out-Null
+        } catch {
+            # Last resort: use the temp directory directly
+            $global:logFile = Join-Path -Path $env:TEMP -ChildPath "KeePassBackup_service.log"
+        }
     }
 }
 
@@ -31,7 +40,47 @@ if (!(Test-Path -Path $global:logsDir)) {
 function Write-StartupLog {
     param([string]$Message, [string]$Type = "INFO")
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$timestamp - [$Type] $Message" | Out-File -FilePath $global:logFile -Append
+    "$timestamp - [STARTUP:$Type] $Message" | Out-File -FilePath $global:logFile -Append -ErrorAction SilentlyContinue
+    
+    # Also output to console if in interactive mode
+    if ([Environment]::UserInteractive) {
+        Write-Host "$timestamp - [$Type] $Message"
+    }
+}
+
+Write-StartupLog "KeePass Backup Service starting..."
+
+# Load logging module
+$loggingScriptPath = Join-Path -Path $global:corePath -ChildPath "Logging.ps1"
+if (Test-Path $loggingScriptPath) {
+    . $loggingScriptPath
+    Write-StartupLog "Logging module loaded successfully" -Type "SUCCESS"
+} else {
+    Write-StartupLog "Logging.ps1 not found at $loggingScriptPath - will use fallback logging" -Type "ERROR"
+    
+    # Define a more complete fallback Write-ServiceLog function if Logging.ps1 failed to load
+    function Write-ServiceLog {
+        param(
+            [string]$Message,
+            [ValidateSet('Information', 'Warning', 'Error', 'Debug')]
+            [string]$Type = 'Information',
+            [int]$LogLevel = 3
+        )
+        
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        "$timestamp - [SERVICE:$Type] $Message" | Out-File -FilePath $global:logFile -Append -ErrorAction SilentlyContinue
+        
+        # Also output to console if in interactive mode
+        if ([Environment]::UserInteractive) {
+            $colors = @{
+                'Information' = 'White'
+                'Warning' = 'Yellow'
+                'Error' = 'Red'
+                'Debug' = 'Gray'
+            }
+            Write-Host "$timestamp - [$Type] $Message" -ForegroundColor $colors[$Type]
+        }
+    }
 }
 
 Write-StartupLog "KeePass Backup Service starting..."
