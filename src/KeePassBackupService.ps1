@@ -251,10 +251,23 @@ $stopScript = {
 
 # Register stop signal handlers
 try {
-    Register-ObjectEvent -InputObject ([System.Console]) -EventName CancelKeyPress -Action $stopScript -ErrorAction SilentlyContinue
+    # Check if we're running in interactive mode or as a service
+    if ([Environment]::UserInteractive) {
+        # Register console events when running in console mode
+        Register-ObjectEvent -InputObject ([System.Console]) -EventName CancelKeyPress -Action $stopScript -ErrorAction SilentlyContinue
+        Write-ServiceLog "Registered interactive console handlers for graceful shutdown" -Type Information
+    } else {
+        # Running as a service - no need for console event handlers
+        Write-ServiceLog "Running in service mode - console handlers not required" -Type Information
+    }
+    
+    # This event is safe to register in both modes
     Register-EngineEvent -SourceIdentifier ([System.Management.Automation.PipelineState]::Stopped) -Action $stopScript -ErrorAction SilentlyContinue
 } catch {
-    Write-ServiceLog "Warning: Failed to register event handlers. Service may not stop gracefully." -Type Warning
+    # Only log as warning if we're in interactive mode where we actually need these handlers
+    if ([Environment]::UserInteractive) {
+        Write-ServiceLog "Warning: Failed to register event handlers: $_" -Type Warning
+    }
 }
 
 # Start the service work

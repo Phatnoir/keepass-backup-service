@@ -63,57 +63,22 @@ function Test-OneDriveSyncStatus {
         if ($FilePath -like "*OneDrive*") {
             Write-ServiceLog "Detecting OneDrive file: $FilePath" -Type Information
             
-            # Check if the OneDrive process is running
-            $oneDriveProcess = Get-Process -Name "OneDrive" -ErrorAction SilentlyContinue
-            
-            if ($null -eq $oneDriveProcess) {
-                Write-ServiceLog "OneDrive is not running. Sync status unknown." -Type Warning
-                return $true # Continue anyway
-            }
-            
-            # Check file attributes to see if it's available locally
-            $fileInfo = Get-Item $FilePath -ErrorAction SilentlyContinue
-            
-            if ($null -eq $fileInfo) {
-                Write-ServiceLog "File not found or not synced: $FilePath" -Type Error
+            # Don't rely solely on the OneDrive process - check if file is accessible
+            if (Test-Path $FilePath) {
+                Write-ServiceLog "OneDrive file is accessible: $FilePath" -Type Information
+                return $true
+            } else {
+                Write-ServiceLog "OneDrive file is not accessible: $FilePath" -Type Error
                 return $false
             }
-            
-            # Check if file is marked as "online-only"
-            if ($fileInfo) {
-                $fileAttributes = $fileInfo.Attributes
-                $isOnlineOnly = $fileAttributes.HasFlag([System.IO.FileAttributes]::NotContentIndexed) -and 
-                                $fileAttributes.HasFlag([System.IO.FileAttributes]::Offline)
-            
-                if ($isOnlineOnly) {
-                    Write-ServiceLog "File is in 'online-only' state, trying to sync: $FilePath" -Type Warning
-                
-                    # Try to access the file to trigger sync
-                    $fileContent = Get-Content $FilePath -TotalCount 1 -ErrorAction SilentlyContinue
-                    
-                    # Re-check attributes after accessing the file
-                    $fileInfo = Get-Item $FilePath -ErrorAction SilentlyContinue
-                    if ($fileInfo) {
-                        $fileAttributes = $fileInfo.Attributes
-                        $isStillOnlineOnly = $fileAttributes.HasFlag([System.IO.FileAttributes]::NotContentIndexed) -and 
-                                             $fileAttributes.HasFlag([System.IO.FileAttributes]::Offline)
-                
-                        if ($isStillOnlineOnly) {
-                            Write-ServiceLog "Unable to sync OneDrive file: $FilePath" -Type Error
-                            return $false
-                        }
-                    }
-                }
-            }
-            
-            Write-ServiceLog "OneDrive file is available: $FilePath" -Type Information
-            return $true
         }
         
+        # Not an OneDrive file, so no sync issues
         return $true
     }
     catch {
         Write-ServiceLog "Error checking OneDrive sync status: $_" -Type Error
+        # Continue with backup attempt anyway
         return $true
     }
 }
