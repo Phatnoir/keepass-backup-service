@@ -2,11 +2,10 @@
 function Write-StartupLog {
     param([string]$Message, [string]$Type = "INIT")
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$timestamp - [STARTUP:$Type] $Message" | Out-File -FilePath $global:logFile -Append
+    "$timestamp [STARTUP:$Type]: $Message" | Out-File -FilePath $global:logFile -Append # Changed format to match SERVICE
 }
 
 function Write-ServiceLog {
-    # Existing function but with clearly different prefix
     param(
         [string]$Message,
         [ValidateSet('Information', 'Warning', 'Error', 'Debug')]
@@ -50,7 +49,7 @@ function Write-ServiceLog {
         }
     }
     
-    # File logging with timestamp
+    # File logging with timestamp - standardized format
     $logMessage = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [SERVICE:$Type]: $Message"
     Add-Content -Path $global:logFile -Value $logMessage -ErrorAction SilentlyContinue
     

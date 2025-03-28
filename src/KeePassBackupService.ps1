@@ -48,7 +48,7 @@ function Write-StartupLog {
     }
 }
 
-Write-StartupLog "KeePass Backup Service starting..."
+#comment out as per Claude: Write-StartupLog "KeePass Backup Service starting..."
 
 # Load logging module
 $loggingScriptPath = Join-Path -Path $global:corePath -ChildPath "Logging.ps1"
@@ -90,22 +90,19 @@ Write-StartupLog "Loading core modules..."
 
 try {
     $loggingScriptPath = Join-Path -Path $global:corePath -ChildPath "Logging.ps1"
-if (Test-Path $loggingScriptPath) {
-    . $loggingScriptPath
-    if (Get-Command -Name Write-ServiceLog -ErrorAction SilentlyContinue) {
-        Write-ServiceLog "Loaded Logging.ps1" -Type Information
+    if (Test-Path $loggingScriptPath) {
+        . $loggingScriptPath
+        if (Get-Command -Name Write-ServiceLog -ErrorAction SilentlyContinue) {
+            Write-ServiceLog "Loaded Logging.ps1" -Type Debug # Changed from Information to Debug
+        } else {
+            Write-StartupLog "Logging module loaded but Write-ServiceLog function not found" "WARNING"
+        }
     } else {
-        Write-Host "Loaded Logging.ps1"
-    }
-} else {
-    if (Get-Command -Name Write-StartupLog -ErrorAction SilentlyContinue) {
         Write-StartupLog "Logging.ps1 not found at $loggingScriptPath" "ERROR"
-    } else {
-        Write-Host "ERROR: Logging.ps1 not found at $loggingScriptPath"
     }
-}
 
-    Write-StartupLog "Loaded Logging.ps1" "SUCCESS"
+    # Remove the duplicate success message here
+    # Write-StartupLog "Loaded Logging.ps1" "SUCCESS"
 } catch {
     Write-StartupLog "Error loading Logging.ps1: $_" "ERROR"
     # Create basic Write-ServiceLog function if module loading failed
@@ -118,14 +115,14 @@ if (Test-Path $loggingScriptPath) {
 
 try {
     . (Join-Path -Path $global:corePath -ChildPath "BitLocker.ps1")
-    Write-ServiceLog "Loaded BitLocker.ps1" -Type Information
+    Write-ServiceLog "Loaded BitLocker.ps1" -Type Debug # Changed from Information to Debug
 } catch {
     Write-ServiceLog "Error loading BitLocker.ps1: $_" -Type Error
 }
 
 try {
     . (Join-Path -Path $global:corePath -ChildPath "Backup.ps1")
-    Write-ServiceLog "Loaded Backup.ps1" -Type Information
+    Write-ServiceLog "Loaded Backup.ps1" -Type Debug # Changed from Information to Debug
 } catch {
     Write-ServiceLog "Error loading Backup.ps1: $_" -Type Error
 }
@@ -163,14 +160,14 @@ function Load-Configuration {
 
         # Check if config file exists
         if (Test-Path $ConfigPath) {
-            Write-ServiceLog "Loading configuration from: $ConfigPath" -Type Information
+            Write-ServiceLog "Loading configuration from: $ConfigPath" -Type Debug # Changed from Information to Debug
             $loadedConfig = Get-Content $ConfigPath -Raw | ConvertFrom-Json
             
             foreach ($prop in $loadedConfig.PSObject.Properties) {
                 $global:config[$prop.Name] = $prop.Value
             }
 
-            Write-ServiceLog "Configuration loaded successfully" -Type Information
+            Write-ServiceLog "Configuration loaded successfully" -Type Debug # Changed from Information to Debug
             return $true
         }
         
@@ -200,8 +197,9 @@ $destination = $global:config.LocalBackupPath
 if (!(Test-Path $source)) {
     Write-ServiceLog "WARNING: Source file not found at $source" -Type Warning
 } else {
-    Write-ServiceLog "Source file verified at $source" -Type Information
+    Write-ServiceLog "Source file verified at $source" -Type Debug # Changed from Information to Debug
 }
+
 
 # Ensure backup directory exists
 if (!(Test-Path $destination)) {
@@ -227,7 +225,7 @@ function Start-ServiceWork {
                 Backup-KeePassDatabase
                 Write-ServiceLog "Initial backup completed successfully" -Type Information
             } else {
-                Write-ServiceLog "No backup needed on service start - already backed up today" -Type Information
+                Write-ServiceLog "No backup needed on service start - last backup is recent" -Type Information
             }
         } else {
             Write-ServiceLog "Should-RunBackup function not available. Check module loading." -Type Error
@@ -252,30 +250,40 @@ function Start-ServiceWork {
                 }
             }
             
-            # Adjust timeout based on the result
+            # Improved timeout calculation - use the Get-TimeUntilNextBackup function
             if ($shouldRunBackup) {
-                # Successful backup → Wait until the next day or interval
+                # Successful backup → Calculate time until next scheduled backup
                 $timeout = 3600 * $global:config.BackupIntervalHours
+                Write-ServiceLog "Next scheduled backup in $([Math]::Round($timeout/3600, 1)) hours" -Type Information
             } else {
-                # No backup needed → Try again in 1 hour
-                $timeout = 3600
+                # No backup needed → Calculate time until next scheduled backup
+                $timeUntilNext = Get-TimeUntilNextBackup -Destination $global:config.LocalBackupPath
+                $timeout = [Math]::Max($timeUntilNext, 1800) # Minimum 30 minutes as a safety
+                
+                # More descriptive log message
+                $hours = [Math]::Round($timeout/3600, 1)
+                if ($timeout -le 3600) {
+                    $minutes = [Math]::Round($timeout/60, 0)
+                    Write-ServiceLog "No backup needed now. Next backup check in $minutes minutes" -Type Information
+                } else {
+                    Write-ServiceLog "No backup needed now. Next backup check in $hours hours" -Type Information
+                }
             }
             
-            # Handle failure or error recovery
+            # Handle failure or error recovery (keep this part)
             if ($null -eq $shouldRunBackup) {
                 # If function throws an error or returns unexpected result, retry in 10 minutes
                 Write-ServiceLog "Error or undefined result from Should-RunBackup. Retrying in 10 minutes." -Type Warning
                 $timeout = 600  # 10 minutes
             }
             
-            # Cap the maximum wait time to 8 hours to avoid getting stuck
+            # Cap the maximum wait time to 8 hours to avoid getting stuck (keep this part)
             if ($timeout -gt 28800) {
                 $timeout = 28800  # 8 hours
+                Write-ServiceLog "Capping wait time to 8 hours maximum" -Type Debug
             }
             
-            Write-ServiceLog "Next backup check in $([Math]::Round($timeout/3600, 1)) hours" -Type Information
-            
-            # Wait for next check or service stop
+            # Wait for next check or service stop (keep this part)
             $start = Get-Date
             while (((Get-Date) - $start).TotalSeconds -lt $timeout -and $script:serviceRunning) {
                 Start-Sleep -Seconds 60  # Check every minute for stop signal
