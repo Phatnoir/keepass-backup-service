@@ -88,28 +88,36 @@ function Unlock-BitLockerDrive {
         [Parameter(Mandatory=$true)]
         [string]$DriveLetter,
         
-        [string]$KeyPath = $(if ($null -ne $global:config -and $null -ne $global:config.BitLockerKeyPath) { $global:config.BitLockerKeyPath } else { "C:\BitLockerKeys" }),
+        [string]$KeyPath = $(if ($null -ne $global:config -and $null -ne $global:config.BitLockerKeyPath) { 
+            $global:config.BitLockerKeyPath 
+        } else { 
+            "C:\BitLockerKeys" 
+        }),
         
-        [switch]$AutoLock = $(if ($null -ne $global:config -and $null -ne $global:config.AutoLockAfterBackup) { $global:config.AutoLockAfterBackup } else { $false })
+        [switch]$AutoLock = $(if ($null -ne $global:config -and $null -ne $global:config.AutoLockAfterBackup) { 
+            $global:config.AutoLockAfterBackup 
+        } else { 
+            $false 
+        })
     )
     
     try {
-        # Check if drive exists first (as a volume)
-        $driveExists = Get-Volume -DriveLetter $DriveLetter -ErrorAction SilentlyContinue
-        if ($null -eq $driveExists) {
+        # Check if drive exists as a volume
+        if ($null -eq (Get-Volume -DriveLetter $DriveLetter -ErrorAction SilentlyContinue)) {
             Write-ServiceLog "Drive $DriveLetter does not exist as a mounted volume" -Type Information
             return $false
         }
         
-        # Check if drive is BitLocker-protected by attempting to get status
+        # Check BitLocker status
         $status = manage-bde.exe -status ${DriveLetter}:
+        
+        # If BitLocker isn't available on this drive
         if ($LASTEXITCODE -ne 0) {
-            # This likely means the drive exists but BitLocker isn't available on it
             Write-ServiceLog "Drive $DriveLetter exists but doesn't appear to be BitLocker-protected" -Type Information
-            return $true  # Return true so backup can continue
+            return $true
         }
         
-        # Check if already unlocked
+        # If already unlocked
         if ($status -match "Lock Status\s*:\s*Unlocked") {
             Write-ServiceLog "Drive $DriveLetter is already unlocked" -Type Information
             return $true
@@ -117,11 +125,7 @@ function Unlock-BitLockerDrive {
         
         Write-ServiceLog "Drive $DriveLetter is locked. Attempting to unlock..." -Type Information
         
-        # First try with recovery password file
-        $primaryPasswordFile = Join-Path $KeyPath "RecoveryPassword_$DriveLetter.txt"
-        $recoveryPassword = $null
-        
-        # Try multiple password formats
+        # Try with recovery password files (multiple formats)
         $passwordFiles = @(
             (Join-Path $KeyPath "RecoveryPassword_$DriveLetter.txt"),
             (Join-Path $KeyPath "$DriveLetter`_password.txt"),
@@ -129,62 +133,67 @@ function Unlock-BitLockerDrive {
             (Join-Path $KeyPath "BitLocker_${DriveLetter}_password.txt")
         )
         
+        # Try to find and use a valid recovery password
         foreach ($passwordFile in $passwordFiles) {
             if (Test-Path $passwordFile) {
-                try {
-                    $recoveryPassword = Get-Content $passwordFile -Raw -ErrorAction Stop
-                    $recoveryPassword = $recoveryPassword.Trim()
-                    
-                    # Validate it's actually a recovery password (48 digits with or without hyphens)
-                    $passwordNoHyphens = $recoveryPassword -replace '-', ''
-                    if ($passwordNoHyphens -match '^\d{48}$') {
-                        Write-ServiceLog "Found valid recovery password in $passwordFile" -Type Debug
-                        break
-                    } else {
-                        Write-ServiceLog "File $passwordFile does not contain a valid recovery password" -Type Warning
-                        $recoveryPassword = $null
+                $recoveryPassword = (Get-Content $passwordFile -Raw).Trim()
+                
+                # Validate it's a recovery password (48 digits with or without hyphens)
+                $passwordNoHyphens = $recoveryPassword -replace '-', ''
+                if ($passwordNoHyphens -match '^\d{48}$') {
+                    # Format password with hyphens if needed
+                    if ($recoveryPassword -notmatch '-') {
+                        $formatted = ""
+                        for ($i = 0; $i -lt $recoveryPassword.Length; $i += 6) {
+                            if ($i -gt 0) { $formatted += "-" }
+                            $formatted += $recoveryPassword.Substring($i, [Math]::Min(6, $recoveryPassword.Length - $i))
+                        }
+                        $recoveryPassword = $formatted
                     }
-                } catch {
-                    Write-ServiceLog "Error reading password file $passwordFile`: $($_)" -Type Error
+                    
+                    # Attempt unlock with manage-bde
+                    manage-bde.exe -unlock ${DriveLetter}: -rp $recoveryPassword
+                    
+                    # Verify unlock (with retry)
+                    for ($i = 0; $i -lt 3; $i++) {
+                        $status = manage-bde.exe -status ${DriveLetter}:
+                        if ($status -match "Lock Status\s*:\s*Unlocked") {
+                            Write-ServiceLog "Successfully unlocked drive $DriveLetter with recovery password" -Type Information
+                            
+                            # Register for auto-lock if enabled
+                            if ($AutoLock) {
+                                if ($null -eq $global:drivesToLock) { $global:drivesToLock = @() }
+                                if ($global:drivesToLock -notcontains $DriveLetter) {
+                                    $global:drivesToLock += $DriveLetter
+                                    Write-ServiceLog "Drive $DriveLetter registered for auto-locking after backup" -Type Information
+                                }
+                            }
+                            
+                            return $true
+                        }
+                        Start-Sleep -Seconds 2
+                    }
                 }
             }
         }
         
-        # Try to unlock with recovery password if found
-        if ($recoveryPassword) {
-            Write-ServiceLog "Attempting to unlock drive $DriveLetter with recovery password" -Type Information
-            
-            # Ensure password format is correct (with hyphens)
-            if ($recoveryPassword -notmatch '-') {
-                # Format as xxxxxx-xxxxxx-... if it doesn't have hyphens
-                $formatted = ""
-                for ($i = 0; $i -lt $recoveryPassword.Length; $i += 6) {
-                    if ($i -gt 0) { $formatted += "-" }
-                    $formatted += $recoveryPassword.Substring($i, [Math]::Min(6, $recoveryPassword.Length - $i))
-                }
-                $recoveryPassword = $formatted
-            }
-            
-            # Attempt unlock with manage-bde
-            $result = manage-bde.exe -unlock ${DriveLetter}: -rp $recoveryPassword
-            
-            # Verify unlock was successful
-            $retryCount = 0
-            $maxRetries = 3
-            $unlocked = $false
-            
-            while ($retryCount -lt $maxRetries -and -not $unlocked) {
+        # Try with .bek key files as fallback
+        $keyFiles = Get-ChildItem -Path $KeyPath -Filter "RecoveryKey_${DriveLetter}_*.bek" -ErrorAction SilentlyContinue
+        
+        if ($keyFiles) {
+            # Try each key, starting with the newest
+            foreach ($keyFile in ($keyFiles | Sort-Object CreationTime -Descending)) {
+                Write-ServiceLog "Attempting to unlock with key: $($keyFile.Name)" -Type Information
+                manage-bde.exe -unlock ${DriveLetter}: -recoverykey $keyFile.FullName
+                
+                # Verify unlock
                 $status = manage-bde.exe -status ${DriveLetter}:
                 if ($status -match "Lock Status\s*:\s*Unlocked") {
-                    Write-ServiceLog "Successfully unlocked drive $DriveLetter with recovery password" -Type Information
-                    $unlocked = $true
+                    Write-ServiceLog "Successfully unlocked drive $DriveLetter with key file" -Type Information
                     
-                    # Register auto-lock if enabled
+                    # Register for auto-lock if enabled
                     if ($AutoLock) {
-                        # Register the drive for auto-locking by adding to global list
-                        if ($null -eq $global:drivesToLock) {
-                            $global:drivesToLock = @()
-                        }
+                        if ($null -eq $global:drivesToLock) { $global:drivesToLock = @() }
                         if ($global:drivesToLock -notcontains $DriveLetter) {
                             $global:drivesToLock += $DriveLetter
                             Write-ServiceLog "Drive $DriveLetter registered for auto-locking after backup" -Type Information
@@ -193,54 +202,6 @@ function Unlock-BitLockerDrive {
                     
                     return $true
                 }
-                
-                # Increment retry counter, wait before checking again
-                $retryCount++
-                if ($retryCount -lt $maxRetries) {
-                    Write-ServiceLog "Unlock verification attempt $retryCount failed, waiting before retry..." -Type Debug
-                    Start-Sleep -Seconds 2
-                }
-            }
-            
-            # If we got here and retries are exhausted, unlock failed
-            if (-not $unlocked) {
-                Write-ServiceLog "Failed to unlock drive $DriveLetter with recovery password after verification" -Type Warning
-            }
-        } else {
-            Write-ServiceLog "No valid recovery password file found for drive $DriveLetter" -Type Warning
-        }
-        
-        # Fall back to .bek key files if recovery password didn't work
-        $keyFiles = Get-ChildItem -Path $KeyPath -Filter "RecoveryKey_${DriveLetter}_*.bek" -ErrorAction SilentlyContinue
-        
-        if ($null -eq $keyFiles -or $keyFiles.Count -eq 0) {
-            Write-ServiceLog "No recovery keys found for drive $DriveLetter" -Type Warning
-            return $false
-        }
-        
-        # Try each key, starting with the newest
-        foreach ($keyFile in ($keyFiles | Sort-Object CreationTime -Descending)) {
-            Write-ServiceLog "Attempting to unlock drive $DriveLetter with key: $($keyFile.Name)" -Type Information
-            $result = manage-bde.exe -unlock ${DriveLetter}: -recoverykey $keyFile.FullName
-            
-            # Check if unlock was successful
-            $status = manage-bde.exe -status ${DriveLetter}:
-            if ($status -match "Lock Status\s*:\s*Unlocked") {
-                Write-ServiceLog "Successfully unlocked drive $DriveLetter with key file $($keyFile.Name)" -Type Information
-                
-                # Register auto-lock if enabled
-                if ($AutoLock) {
-                    # Register the drive for auto-locking by adding to global list
-                    if ($null -eq $global:drivesToLock) {
-                        $global:drivesToLock = @()
-                    }
-                    if ($global:drivesToLock -notcontains $DriveLetter) {
-                        $global:drivesToLock += $DriveLetter
-                        Write-ServiceLog "Drive $DriveLetter registered for auto-locking after backup" -Type Information
-                    }
-                }
-                
-                return $true
             }
         }
         
