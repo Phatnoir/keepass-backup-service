@@ -671,6 +671,8 @@ function Set-KeePassBackupConfig {
         [int]$RetentionMonths,
 
         [int]$LogLevel,
+		
+		[bool]$AutoLockAfterBackup,
 
         [string]$ConfigPath = "$env:USERPROFILE\KeePassBackup\config.json"
 
