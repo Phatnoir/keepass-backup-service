@@ -174,8 +174,32 @@ function Find-USBDrive {
         # If drive letter is explicitly specified, use it
         if (-not [string]::IsNullOrWhiteSpace($global:config.USBDriveLetter)) {
             $driveLetter = $global:config.USBDriveLetter.Trim(':').ToUpper()
-            if (Test-Path "${driveLetter}:") {
-                return $driveLetter
+            
+            # Check if drive exists as a volume even if not accessible
+            $volumeExists = Get-Volume -DriveLetter $driveLetter -ErrorAction SilentlyContinue
+            
+            if ($null -ne $volumeExists) {
+                # If BitLocker is enabled, try to unlock the drive
+                if ($global:config.EnableBitLocker -and $global:config.BitLockerUSB) {
+                    $unlocked = Unlock-BitLockerDrive -DriveLetter $driveLetter
+                    
+                    if ($unlocked) {
+                        Write-ServiceLog "Successfully unlocked BitLocker drive $driveLetter" -Type Information
+                        return $driveLetter
+                    } 
+                    else {
+                        Write-ServiceLog "Failed to unlock BitLocker drive $driveLetter" -Type Warning
+                        return $null
+                    }
+                } 
+                elseif (Test-Path "${driveLetter}:") {
+                    return $driveLetter
+                }
+                else {
+                    # Drive exists as volume but isn't accessible and we couldn't unlock it
+                    Write-ServiceLog "Drive $driveLetter exists but isn't accessible" -Type Warning
+                    return $null
+                }
             }
             else {
                 Write-ServiceLog "Specified USB drive $driveLetter not found" -Type Warning
@@ -190,13 +214,49 @@ function Find-USBDrive {
             if (-not [string]::IsNullOrWhiteSpace($global:config.USBDriveLabel)) {
                 if ($drive.VolumeName -eq $global:config.USBDriveLabel) {
                     Write-ServiceLog "Found USB drive $($drive.DeviceID) with label $($drive.VolumeName)" -Type Information
-                    return $drive.DeviceID.Replace(':', '')
+                    
+                    # Get just the drive letter without colon
+                    $foundDriveLetter = $drive.DeviceID.Replace(':', '')
+                    
+                    # If BitLocker is enabled, try to unlock the drive
+                    if ($global:config.EnableBitLocker -and $global:config.BitLockerUSB) {
+                        $unlocked = Unlock-BitLockerDrive -DriveLetter $foundDriveLetter
+                        
+                        if ($unlocked) {
+                            Write-ServiceLog "Successfully unlocked BitLocker drive $foundDriveLetter" -Type Information
+                            return $foundDriveLetter
+                        }
+                        else {
+                            Write-ServiceLog "Failed to unlock BitLocker drive $foundDriveLetter" -Type Warning
+                            return $null
+                        }
+                    }
+                    
+                    return $foundDriveLetter
                 }
             }
             else {
                 # If no label specified, use first USB drive found
                 Write-ServiceLog "Found USB drive $($drive.DeviceID)" -Type Information
-                return $drive.DeviceID.Replace(':', '')
+                
+                # Get just the drive letter without colon
+                $foundDriveLetter = $drive.DeviceID.Replace(':', '')
+                
+                # If BitLocker is enabled, try to unlock the drive
+                if ($global:config.EnableBitLocker -and $global:config.BitLockerUSB) {
+                    $unlocked = Unlock-BitLockerDrive -DriveLetter $foundDriveLetter
+                    
+                    if ($unlocked) {
+                        Write-ServiceLog "Successfully unlocked BitLocker drive $foundDriveLetter" -Type Information
+                        return $foundDriveLetter
+                    }
+                    else {
+                        Write-ServiceLog "Failed to unlock BitLocker drive $foundDriveLetter" -Type Warning
+                        return $null
+                    }
+                }
+                
+                return $foundDriveLetter
             }
         }
         
@@ -204,7 +264,7 @@ function Find-USBDrive {
         return $null
     }
     catch {
-        Write-ServiceLog "Error finding USB drive: $_" -Type Error
+        Write-ServiceLog "Error finding USB drive: $($_.Exception.Message)" -Type Error
         return $null
     }
 }
@@ -318,6 +378,11 @@ function Backup-KeePassDatabase {
     }
     catch {
         Write-ServiceLog "Error applying retention policy: $_" -Type Error
+    }
+    
+    # Lock any drives that were unlocked during this backup
+    if (Test-Path Function:\Lock-AllUnlockedDrives) {
+        Lock-AllUnlockedDrives
     }
     
     Write-ServiceLog "Backup completed successfully" -Type Information

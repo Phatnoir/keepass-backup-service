@@ -12,5 +12,6 @@
     "SourcePath":  "C:\\Users\\\u003cUSERNAME\u003e\\OneDrive\\KeePass.kdbx",
     "BitLockerKeyPath":  "C:\\Users\\\u003cUSERNAME\u003e\\Documents\\BitLocker_Keys",
     "USBDriveLabel":  "",
-    "EnableBitLocker":  true
+    "EnableBitLocker":  true,
+	"AutoLockAfterBackup": true
 }
