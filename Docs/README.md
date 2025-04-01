@@ -10,8 +10,9 @@ A robust Windows service for automated KeePass database backups with BitLocker e
 - **Smart Retention Policy**: Configurable retention for daily, weekly, and monthly backups
 - **Secure Logging**: Detailed logs with both file and Windows Event Log support
 - **No Hardcoded Credentials**: Security-focused installation with proper credential management
-- **Configuration Management**: Flexible JSON-based configuration
+- **Configuration Management**: Flexible JSON-based configuration with both GUI and PowerShell module support
 - **OneDrive Support**: Back up KeePass databases stored in OneDrive
+- **Auto-Lock**: Automatically lock BitLocker-protected drives after backup completion
 
 ## Project Structure
 
@@ -37,7 +38,7 @@ KeePassBackupService/
 │   └── config.json                      # Actual configuration (gitignored)
 │
 ├── Tools/
-│   └── ModifyService.ps1                # Maintenance scripts
+│   └── KeePassBackupConfigGUI.ps1       # GUI configuration tool
 │
 ├── Data/                                # Runtime data (gitignored)
 │   ├── Logs/                            # Service logs
@@ -98,7 +99,11 @@ nssm install KeePassBackupService powershell.exe "-NoProfile -ExecutionPolicy By
 
 ## Configuration
 
-The service can be configured through the interactive installer or by editing the `Config\config.json` file.
+The service can be configured through multiple methods:
+
+1. **Configuration GUI**: Use the `Tools\KeePassBackupConfigGUI.ps1` script for a user-friendly interface to manage settings
+2. **PowerShell Module**: Use the configuration module for scripted management
+3. **Direct Editing**: Edit the `Config\config.json` file manually
 
 ### Configuration Parameters
 
@@ -118,8 +123,17 @@ The service can be configured through the interactive installer or by editing th
 | RetentionWeeks | Weeks to keep weekly backups | 4 |
 | RetentionMonths | Months to keep monthly backups | 6 |
 | LogLevel | Log detail level (1-4) | 3 |
+| AutoLockAfterBackup | Lock BitLocker drives after backup | True |
 
-### Updating Configuration
+### Using the Configuration GUI
+
+The service includes a graphical configuration tool for easier setup:
+
+1. Run `Tools\KeePassBackupConfigGUI.ps1` with administrator privileges
+2. Configure all options in the tabbed interface
+3. Click "Save" to apply settings
+
+### Updating Configuration via PowerShell
 
 You can update the configuration using the PowerShell module:
 
@@ -138,6 +152,7 @@ When BitLocker integration is enabled, the service can:
 1. Check if a drive is already encrypted
 2. Generate and store recovery keys securely
 3. Unlock encrypted drives using stored recovery keys
+4. Automatically lock drives after backup completion (if AutoLockAfterBackup is enabled)
 
 Recovery keys are stored in the configured `BitLockerKeyPath` directory with secure permissions.
 
@@ -148,6 +163,16 @@ For each BitLocker-protected drive, create a text file named `RecoveryPassword_X
 For example, for drive E:
 - Create file: `Data\BitLockerKeys\RecoveryPassword_E.txt`
 - Content: The 48-digit recovery password (e.g., `123456-789012-345678-901234-567890-123456-789012-345678`)
+
+## OneDrive Integration
+
+The service includes special handling for databases stored in OneDrive:
+
+1. Auto-detection of OneDrive paths
+2. Sync status verification before backup
+3. Handling of sync conflicts
+
+This ensures reliable backups even when the database is stored in a cloud-synchronized folder.
 
 ## Logging
 
