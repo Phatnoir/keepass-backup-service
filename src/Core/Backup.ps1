@@ -306,7 +306,7 @@ function Apply-RetentionPolicy {
         return $true
     }
     catch {
-        Write-ServiceLog "Error applying retention policy to $BackupPath: $_" -Type Error
+        Write-ServiceLog ("Error applying retention policy to {0}: {1}" -f $BackupPath, $_.Exception.Message) -Type Error
         return $false
     }
 }

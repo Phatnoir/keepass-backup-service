@@ -119,6 +119,12 @@ try {
         $config.AutoLockAfterBackup = $true
         Write-Host "Setting default AutoLockAfterBackup to true"
     }
+	
+	# Ensure EnableUSBPrune is properly defined
+	if ($null -eq $config.EnableUSBPrune) {
+		$config.EnableUSBPrune = $true  # or $false depending on your default
+		Write-Host "Setting default EnableUSBPrune to true"
+	}
 }
 catch {
     Write-Host "No existing configuration found or error loading it: $_"
