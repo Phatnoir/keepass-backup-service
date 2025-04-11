@@ -135,6 +135,8 @@ function New-KeePassBackupConfig {
         [switch]$EnableUSBBackup,
 
         
+		[switch]$EnableUSBPrune,
+		
 
         [string]$USBDriveLetter = '',
 
@@ -305,6 +307,8 @@ function New-KeePassBackupConfig {
         LocalBackupPath = $LocalBackupPath
 
         EnableUSBBackup = $EnableUSBBackup.IsPresent
+		
+		EnableUSBPrune = $EnableUSBPrune.IsPresent
 
         USBDriveLetter = $USBDriveLetter
 
@@ -649,6 +653,8 @@ function Set-KeePassBackupConfig {
         [string]$LocalBackupPath,
 
         [bool]$EnableUSBBackup,
+		
+		[bool]$EnableUSBPrune,
 
         [string]$USBDriveLetter,
 

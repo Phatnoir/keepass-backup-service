@@ -269,6 +269,48 @@ function Find-USBDrive {
     }
 }
 
+function Apply-RetentionPolicy {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$BackupPath,
+        [string]$FileFilter = "Database_Backup_*.kdbx"
+    )
+    
+    try {
+        # Get all backup files
+        $allBackups = Get-ChildItem -Path $BackupPath -Filter $FileFilter | 
+                     Sort-Object CreationTime
+        
+        Write-ServiceLog "Applying retention policy to $BackupPath. Found $($allBackups.Count) backups." -Type Debug
+        
+        # Keep all backups within retention days
+        $retentionDate = (Get-Date).AddDays(-$global:config.RetentionDays)
+        $oldBackups = $allBackups | Where-Object { $_.CreationTime -lt $retentionDate }
+        
+        # Apply retention policy logic
+        if ($oldBackups.Count -gt 0) {
+            foreach ($backup in $oldBackups) {
+                # Add logic for weekly and monthly retention here
+                $keepWeekly = $false
+                $keepMonthly = $false
+                
+                # Implement weekly and monthly retention logic here
+                
+                if (-not ($keepWeekly -or $keepMonthly)) {
+                    Remove-Item $backup.FullName -Force
+                    Write-ServiceLog "Removed old backup: $($backup.Name)" -Type Debug
+                }
+            }
+        }
+        
+        return $true
+    }
+    catch {
+        Write-ServiceLog "Error applying retention policy to $BackupPath: $_" -Type Error
+        return $false
+    }
+}
+
 # Full backup function
 function Backup-KeePassDatabase {
     # Check if source is a OneDrive file and ensure it's synced
@@ -349,45 +391,27 @@ function Backup-KeePassDatabase {
         }
     }
     
-    # Apply retention policy
-    try {
-        # Get all backup files
-        $allBackups = Get-ChildItem -Path $destination -Filter "Database_Backup_*.kdbx" | 
-                     Sort-Object CreationTime
-        
-        # Keep all backups within retention days
-        $retentionDate = (Get-Date).AddDays(-$global:config.RetentionDays)
-        $oldBackups = $allBackups | Where-Object { $_.CreationTime -lt $retentionDate }
-        
-        # Apply complex retention policy - implement as needed
-        # This is a simplified version
-        if ($oldBackups.Count -gt 0) {
-            foreach ($backup in $oldBackups) {
-                # Check if we should keep this as a weekly or monthly backup
-                $keepWeekly = $false
-                $keepMonthly = $false
-                
-                # Implement weekly and monthly retention logic here
-                
-                if (-not ($keepWeekly -or $keepMonthly)) {
-                    Remove-Item $backup.FullName -Force
-                    Write-ServiceLog "Removed old backup: $($backup.Name)" -Type Debug
-                }
-            }
-        }
-    }
-    catch {
-        Write-ServiceLog "Error applying retention policy: $_" -Type Error
-    }
-    
-    # Lock any drives that were unlocked during this backup
-    if (Test-Path Function:\Lock-AllUnlockedDrives) {
-        Lock-AllUnlockedDrives
-    }
-    
-    Write-ServiceLog "Backup completed successfully" -Type Information
-}
+# Apply retention policy for local backups
+	Apply-RetentionPolicy -BackupPath $destination
 
+	# Apply retention policy for USB backups if enabled
+	if ($global:config.EnableUSBBackup -and 
+		($global:config.EnableUSBPrune -eq $true) -and 
+		($null -ne $usbBackupDir) -and 
+		(Test-Path $usbBackupDir)) {
+    
+		Write-ServiceLog "Applying retention policy to USB backups at $usbBackupDir" -Type Information
+		Apply-RetentionPolicy -BackupPath $usbBackupDir
+	}
+
+	# Lock any drives that were unlocked during this backup
+	if (Test-Path Function:\Lock-AllUnlockedDrives) {
+		Lock-AllUnlockedDrives
+	}
+
+	Write-ServiceLog "Backup completed successfully" -Type Information
+
+}
 # Export functions for use in main script
 # Module export commented out to prevent errors when dot-sourcing
 

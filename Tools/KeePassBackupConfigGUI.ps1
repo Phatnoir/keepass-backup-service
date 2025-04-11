@@ -435,6 +435,9 @@ $txtUSBDriveLabel = New-TextBox -Text $config.USBDriveLabel -X 200 -Y 180
 $lblUSBBackupPath = New-Label -Text "USB Backup Folder:" -X 20 -Y 220
 $txtUSBBackupPath = New-TextBox -Text $config.USBBackupPath -X 200 -Y 220
 
+# Add USB Prune checkbox
+$chkEnableUSBPrune = New-CheckBox -Text "Apply retention policy to USB backups" -Checked $config.EnableUSBPrune -X 20 -Y 260 -Width 350
+
 # USB controls enable/disable logic
 $updateUSBControlState = {
     $enabled = $rbUSBEnable.Checked
@@ -445,6 +448,7 @@ $updateUSBControlState = {
     $lblUSBDriveLabel.Enabled = $enabled
     $lblUSBBackupPath.Enabled = $enabled
     $lblUSBDriveLetterHelp.Enabled = $enabled
+	$chkEnableUSBPrune.Enabled = $enabled
 }
 
 $rbUSBEnable.add_CheckedChanged($updateUSBControlState)
@@ -462,6 +466,7 @@ $tabUSB.Controls.Add($lblUSBDriveLabel)
 $tabUSB.Controls.Add($txtUSBDriveLabel)
 $tabUSB.Controls.Add($lblUSBBackupPath)
 $tabUSB.Controls.Add($txtUSBBackupPath)
+$tabUSB.Controls.Add($chkEnableUSBPrune)
 
 # ------------------------
 # BitLocker Tab Controls
@@ -542,6 +547,7 @@ $btnSave.add_Click({
     $config.USBDriveLabel = $txtUSBDriveLabel.Text
     $config.EnableBitLocker = $chkEnableBitLocker.Checked
     $config.BitLockerUSB = $chkBitLockerUSB.Checked
+	$config.EnableUSBPrune = $chkEnableUSBPrune.Checked
     $config.BitLockerKeyPath = $txtBitLockerKeyPath.Text
     $config.BackupIntervalHours = $numBackupInterval.Value
     $config.RetentionDays = [int]$numRetentionDays.Value

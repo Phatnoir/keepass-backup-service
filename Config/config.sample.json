@@ -13,6 +13,7 @@
     "BitLockerKeyPath": ".\\Data\\BitLockerKeys",
     "USBDriveLabel": "BACKUP",
     "EnableBitLocker": true,
-    "AutoLockAfterBackup": true
+    "AutoLockAfterBackup": true,
+	"EnableUSBPrune": true
 }
 

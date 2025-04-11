@@ -8,6 +8,7 @@ A robust Windows service for automated KeePass database backups with BitLocker e
 - **Multiple Backup Locations**: Back up to both local storage and USB drives
 - **BitLocker Integration**: Encrypt USB drives automatically for enhanced security
 - **Smart Retention Policy**: Configurable retention for daily, weekly, and monthly backups
+- **Retention Management**: Apply retention policies to both local and USB backups independently
 - **Secure Logging**: Detailed logs with both file and Windows Event Log support
 - **No Hardcoded Credentials**: Security-focused installation with proper credential management
 - **Configuration Management**: Flexible JSON-based configuration with both GUI and PowerShell module support
@@ -112,6 +113,7 @@ The service can be configured through multiple methods:
 | SourcePath | Path to your KeePass database file | (Required) |
 | LocalBackupPath | Local folder to store backups | (Required) |
 | EnableUSBBackup | Enable backups to USB drives | True |
+| EnableUSBPrune | Apply retention policy to USB backups | True |
 | USBDriveLetter | Specific USB drive letter | (Auto-detect) |
 | USBDriveLabel | USB drive label to look for | "BACKUP" |
 | USBBackupPath | Folder on USB drive | "KeePass_Backups" |
@@ -142,8 +144,22 @@ You can update the configuration using the PowerShell module:
 Import-Module .\Modules\KeePassBackupConfigManager.psm1
 
 # Update specific settings
-Set-KeePassBackupConfig -BackupIntervalHours 12 -EnableUSBBackup $true
+Set-KeePassBackupConfig -BackupIntervalHours 12 -EnableUSBBackup $true -EnableUSBPrune $true
 ```
+
+## Retention Policy Management
+
+The service implements a smart retention policy for both local and USB backups:
+
+1. **Local Backups**: Always managed according to the configured retention policy
+2. **USB Backups**: Can be managed with the same retention policy settings by enabling the `EnableUSBPrune` parameter
+
+When `EnableUSBPrune` is set to `true`, the same retention rules will be applied to backups on USB drives:
+- Keep all backups for `RetentionDays` days
+- Keep weekly backups for `RetentionWeeks` weeks
+- Keep monthly backups for `RetentionMonths` months
+
+This helps maintain consistent storage usage across all backup locations without requiring manual cleanup.
 
 ## BitLocker Integration
 
