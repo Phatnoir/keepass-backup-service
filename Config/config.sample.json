@@ -4,7 +4,7 @@
     "USBDriveLetter": "E",
     "LocalBackupPath": ".\\Data\\Backups",
     "EnableUSBBackup": true,
-    "USBBackupPath": "Backups",
+    "USBBackupPath": "KeePass_Backups",
     "BitLockerUSB": true,
     "RetentionDays": 7,
     "BackupIntervalHours": 24,

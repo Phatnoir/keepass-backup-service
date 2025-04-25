@@ -287,21 +287,47 @@ function Apply-RetentionPolicy {
         $retentionDate = (Get-Date).AddDays(-$global:config.RetentionDays)
         $oldBackups = $allBackups | Where-Object { $_.CreationTime -lt $retentionDate }
         
-        # Apply retention policy logic
-        if ($oldBackups.Count -gt 0) {
-            foreach ($backup in $oldBackups) {
-                # Add logic for weekly and monthly retention here
-                $keepWeekly = $false
-                $keepMonthly = $false
-                
-                # Implement weekly and monthly retention logic here
-                
-                if (-not ($keepWeekly -or $keepMonthly)) {
-                    Remove-Item $backup.FullName -Force
-                    Write-ServiceLog "Removed old backup: $($backup.Name)" -Type Debug
-                }
-            }
+	# Apply retention policy logic
+	if ($oldBackups.Count -gt 0) {
+		foreach ($backup in $oldBackups) {
+			$creation = $backup.CreationTime
+			$keepWeekly = $false
+			$keepMonthly = $false
+
+			# Retain one backup per week
+			for ($i = 1; $i -le $global:config.RetentionWeeks; $i++) {
+				$startOfWeek = (Get-Date).Date.AddDays(-7 * $i)
+				$endOfWeek = $startOfWeek.AddDays(7)
+				$sameWeek = $allBackups | Where-Object {
+					$_.CreationTime -ge $startOfWeek -and $_.CreationTime -lt $endOfWeek
+				} | Sort-Object CreationTime | Select-Object -First 1
+				if ($sameWeek.FullName -eq $backup.FullName) {
+					$keepWeekly = $true
+					break
+				}
+			}
+
+			# Retain one backup per month
+			for ($i = 1; $i -le $global:config.RetentionMonths; $i++) {
+				$target = (Get-Date).AddMonths(-$i)
+				$month = $target.Month
+				$year = $target.Year
+				$sameMonth = $allBackups | Where-Object {
+					$_.CreationTime.Month -eq $month -and $_.CreationTime.Year -eq $year
+				} | Sort-Object CreationTime | Select-Object -First 1
+				if ($sameMonth.FullName -eq $backup.FullName) {
+					$keepMonthly = $true
+					break
+				}
+			}
+
+        if (-not ($keepWeekly -or $keepMonthly)) {
+            Remove-Item $backup.FullName -Force
+            Write-ServiceLog "Removed old backup: $($backup.Name)" -Type Debug
         }
+    }
+}
+
         
         return $true
     }
